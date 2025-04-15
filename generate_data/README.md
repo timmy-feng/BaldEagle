@@ -14,3 +14,4 @@ Files:
 
 ### Next Steps
 - [ ] Use sglang/vllm for faster inference (hidden state generation)
+- [ ] Explore more efficient data formats such as H5
