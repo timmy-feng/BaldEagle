@@ -38,9 +38,10 @@ class CustomDataset(torch.utils.data.Dataset):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             try:
-                data = torch.load(self.datapaths[index])
+                data = torch.load(self.datapaths[index], weights_only=False)
             except Exception as e:
                 print(f"Failed to load {self.datapaths[index]} with error {e}")
+                raise e
         new_data = {}
         
         # Squeeze due to our data generation script adding a batch dimension

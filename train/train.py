@@ -18,10 +18,11 @@ from transformers.models.llama.configuration_llama import LlamaConfig
 from transformers import AutoTokenizer, TrainingArguments
 
 from modules.model.llama_eagle import LlamaForCausalLMEagle
-from modules.data.data import CustomDataset, DataCollatorWithPadding, list_files
+from modules.data.data import CustomDataset, DataCollatorWithPadding, AddUniformNoise, list_files
 from modules.trainer.trainer import EagleTrainer
 
 wandb.init(project="BaldEagle")
+wandb_run_name = wandb.run.name
 
 path = "models/llama-8b/"
 
@@ -59,7 +60,7 @@ model_args = LlamaConfig(vocab_size=vocab_size,
 draft_model = LlamaForCausalLMEagle(model_args)
 draft_model.load_embedding_weights(tensor)
 draft_model.to("cuda:0")
-draft_model.model.embed_tokens.weight.requires_grad = False
+draft_model.embed_tokens.weight.requires_grad = False
 
 # Load head
 head = torch.nn.Linear(model_args.hidden_size, model_args.vocab_size, bias=False)
@@ -79,15 +80,14 @@ head.eval()
 
 # -------------------------------- Load data --------------------------------
 
-sharegpt_datapaths = list_files("/mnt/ssd4tb/sharegpt_0_67999_mufp16/")
+sharegpt_datapaths = list_files("/mnt/ssd4tb/sharegpt_grouped_5k/")
 ultra_chat_datapaths = list_files("/mnt/ssd4tb/ultrachat_0_199999_mufp16/")
 
 combined_data_paths = sharegpt_datapaths[:int(len(sharegpt_datapaths) * 0.95)] + ultra_chat_datapaths
 random.Random(42).shuffle(combined_data_paths)
 eval_data_paths = sharegpt_datapaths[int(len(sharegpt_datapaths) * 0.95):][:100]
 
-# TODO: missing uniform noise
-eagle_train_dataset = CustomDataset(combined_data_paths)
+eagle_train_dataset = CustomDataset(combined_data_paths, transform=AddUniformNoise(std=0.5))
 eagle_test_dataset = CustomDataset(eval_data_paths)
 
 eagle_collator = DataCollatorWithPadding()
@@ -95,26 +95,28 @@ eagle_collator = DataCollatorWithPadding()
 # -------------------------------- Train --------------------------------
 
 training_args = TrainingArguments(
-    output_dir="./hf_trainer_output_dir", # TODO: use wandb name
-    # num_train_epochs=5,
-    num_train_epochs=1,
-    # max_steps=750,
-    warmup_ratio=0.01,
-    learning_rate=3e-4, # 1e-3
-    # learning_rate=1e-3,
+    output_dir=f"./hf_trainer_output_dir/{wandb_run_name}/",
+
+    num_train_epochs=10,
+    gradient_accumulation_steps=16,
+
     per_device_train_batch_size=1,
     per_device_eval_batch_size=1,
-    gradient_accumulation_steps=64,
     remove_unused_columns=False,
     bf16=True,
     fp16=False,
     dataloader_num_workers=4,
+    
+    warmup_ratio=0.01,
+    learning_rate=1e-4, # 1e-3
+    lr_scheduler_type="constant",  # Placeholder, we override it in the trainer
+
     max_grad_norm=0.5, # 1
     adam_beta1=0.9, # 0.9
     adam_beta2=0.95, # 0.999
     weight_decay=1e-2,
 
-    evaluation_strategy="steps",
+    eval_strategy="steps",
     logging_steps=32,
     eval_steps=64,
 
@@ -130,6 +132,8 @@ trainer = EagleTrainer(
     train_dataset=eagle_train_dataset,
     eval_dataset=eagle_test_dataset,
     data_collator=eagle_collator,
+
+    min_lr_ratio=0.5,  # Custmer lr scheduler param
 )
 
 trainer.train()
