@@ -24,6 +24,9 @@
   <img src="assets/example_view_data.png" width="800">
 </p>
 
+### Benchmarking
+- Benchmarking scripts using [sglang](https://github.com/sgl-project/sglang) for production quality inference (see [here](benchmark/README.md) for more details)
+
 ## Getting Started with Training
 
 ### 1. Data Generation
