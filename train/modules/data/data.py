@@ -2,15 +2,39 @@ import torch
 import os
 import warnings
 
+from tqdm import tqdm
+
+from huggingface_hub import HfFileSystem
+
 MAX_LEN = 2048
 
-def list_files(path):
-    datapath = []
+def list_local_files(path, suffixes=['.ckpt']):
+    datapaths = []
     for root, directories, files in os.walk(path):
         for file in files:
             file_path = os.path.join(root, file)
-            datapath.append(file_path)
-    return datapath
+            datapaths.append(file_path)
+
+    # Filter out files that don't end with the suffixes (ie. when there's a HuggingFace .cache folder)
+    for suffix in suffixes:
+        datapaths = [f_name for f_name in datapaths if f_name.endswith(suffix)]
+
+    return datapaths
+
+def list_hf_files(repo, suffixes=['.ckpt']):
+    hf_fs = HfFileSystem()
+    datapaths = []
+    print(f"Listing files in {repo}. This is expected to take ~2 min for ShareGPT (70k files).")
+    for path, _, files in tqdm(hf_fs.walk(repo)):
+        for file in files:
+            datapaths.append(path + "/" + file)
+
+    # Filter out files that don't end with the suffixes (ie. when there's a HuggingFace .cache folder)
+    for suffix in suffixes:
+        datapaths = [f_name for f_name in datapaths if f_name.endswith(suffix)]
+
+    print(f"Found {len(datapaths)} files")
+    return datapaths
 
 class AddUniformNoise:
     def __init__(self, std=0.0):
@@ -24,7 +48,7 @@ class AddUniformNoise:
         data["hidden_state_big"] = noisy_tensor
         return data
 
-class CustomDataset(torch.utils.data.Dataset):
+class EagleLocalDataset(torch.utils.data.Dataset):
     def __init__(self, datapath, transform=None, max_len=MAX_LEN):
         self.datapaths = datapath
         self.transform = transform
@@ -34,14 +58,15 @@ class CustomDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.datapaths)
 
+    def _open_file(self, index):
+        return torch.load(self.datapaths[index], weights_only=False)
+
     def __getitem__(self, index):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            try:
-                data = torch.load(self.datapaths[index], weights_only=False)
-            except Exception as e:
-                print(f"Failed to load {self.datapaths[index]} with error {e}")
-                raise e
+        try:
+            data = self._open_file(index)
+        except Exception as e:
+            print(f"Failed to load {self.datapaths[index]} with error {e}")
+            raise e
         new_data = {}
         
         # Squeeze due to our data generation script adding a batch dimension
@@ -77,7 +102,17 @@ class CustomDataset(torch.utils.data.Dataset):
     def set_epoch(self, epoch):
         self._epoch = epoch
 
+class EagleHFDataset(EagleLocalDataset):
+    def __init__(self, datapath, transform=None, max_len=MAX_LEN):
+        super().__init__(datapath, transform, max_len)
+        self.hf_fs = HfFileSystem()
+
+    def _open_file(self, index):
+        with self.hf_fs.open(self.datapaths[index]) as f:
+            return torch.load(f, weights_only=False)
+
 class DataCollatorWithPadding:
+    # Copied from https://github.com/SafeAILab/EAGLE/blob/main/eagle/train/main.py#L178
 
     def paddingtensor(self, intensors, N):
         B, n, S = intensors.shape

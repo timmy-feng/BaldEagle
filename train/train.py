@@ -1,6 +1,5 @@
 import re
 import glob
-import h5py
 import json
 import os
 import torch
@@ -18,7 +17,7 @@ from transformers.models.llama.configuration_llama import LlamaConfig
 from transformers import AutoTokenizer, TrainingArguments
 
 from modules.model.llama_eagle import LlamaForCausalLMEagle
-from modules.data.data import CustomDataset, DataCollatorWithPadding, AddUniformNoise, list_files
+from modules.data.data import EagleLocalDataset, DataCollatorWithPadding, AddUniformNoise, list_local_files
 from modules.trainer.trainer import EagleTrainer
 
 wandb.init(project="BaldEagle")
@@ -80,15 +79,15 @@ head.eval()
 
 # -------------------------------- Load data --------------------------------
 
-sharegpt_datapaths = list_files("/mnt/ssd4tb/sharegpt_grouped_5k/")
-ultra_chat_datapaths = list_files("/mnt/ssd4tb/ultrachat_0_199999_mufp16/")
+sharegpt_datapaths = list_local_files("/mnt/ssd4tb/sharegpt_grouped_5k/")
+ultra_chat_datapaths = list_local_files("/mnt/ssd4tb/ultrachat_0_199999_mufp16/")
 
 combined_data_paths = sharegpt_datapaths[:int(len(sharegpt_datapaths) * 0.95)] + ultra_chat_datapaths
 random.Random(42).shuffle(combined_data_paths)
 eval_data_paths = sharegpt_datapaths[int(len(sharegpt_datapaths) * 0.95):][:100]
 
-eagle_train_dataset = CustomDataset(combined_data_paths, transform=AddUniformNoise(std=0.5))
-eagle_test_dataset = CustomDataset(eval_data_paths)
+eagle_train_dataset = EagleLocalDataset(combined_data_paths, transform=AddUniformNoise(std=0.5))
+eagle_test_dataset = EagleLocalDataset(eval_data_paths)
 
 eagle_collator = DataCollatorWithPadding()
 
