@@ -1,6 +1,5 @@
 import torch
 import os
-import warnings
 
 from tqdm import tqdm
 
@@ -8,7 +7,8 @@ from huggingface_hub import HfFileSystem
 
 MAX_LEN = 2048
 
-def list_local_files(path, suffixes=['.ckpt']):
+
+def list_local_files(path, suffixes=[".ckpt"]):
     datapaths = []
     for root, directories, files in os.walk(path):
         for file in files:
@@ -21,10 +21,13 @@ def list_local_files(path, suffixes=['.ckpt']):
 
     return datapaths
 
-def list_hf_files(repo, suffixes=['.ckpt']):
+
+def list_hf_files(repo, suffixes=[".ckpt"]):
     hf_fs = HfFileSystem()
     datapaths = []
-    print(f"Listing files in {repo}. This is expected to take ~2 min for ShareGPT (70k files).")
+    print(
+        f"Listing files in {repo}. This is expected to take ~2 min for ShareGPT (70k files)."
+    )
     for path, _, files in tqdm(hf_fs.walk(repo)):
         for file in files:
             datapaths.append(path + "/" + file)
@@ -35,6 +38,7 @@ def list_hf_files(repo, suffixes=['.ckpt']):
 
     print(f"Found {len(datapaths)} files")
     return datapaths
+
 
 class AddUniformNoise:
     def __init__(self, std=0.0):
@@ -47,6 +51,7 @@ class AddUniformNoise:
         noisy_tensor = tensor + noise
         data["hidden_state_big"] = noisy_tensor
         return data
+
 
 class EagleLocalDataset(torch.utils.data.Dataset):
     def __init__(self, datapath, transform=None, max_len=MAX_LEN):
@@ -68,12 +73,12 @@ class EagleLocalDataset(torch.utils.data.Dataset):
             print(f"Failed to load {self.datapaths[index]} with error {e}")
             raise e
         new_data = {}
-        
-        # Squeeze due to our data generation script adding a batch dimension
-        hidden_state = data['hidden_state'].squeeze(0)[:self.max_len][None, :]
 
-        input_ids = data['input_ids'][:self.max_len][None, :]
-        loss_mask = data["loss_mask"][:self.max_len][None, :]
+        # Squeeze due to our data generation script adding a batch dimension
+        hidden_state = data["hidden_state"].squeeze(0)[: self.max_len][None, :]
+
+        input_ids = data["input_ids"][: self.max_len][None, :]
+        loss_mask = data["loss_mask"][: self.max_len][None, :]
 
         length = hidden_state.shape[1]
         attention_mask = [1] * length
@@ -98,9 +103,10 @@ class EagleLocalDataset(torch.utils.data.Dataset):
             new_data = self.transform(new_data)
 
         return new_data
-    
+
     def set_epoch(self, epoch):
         self._epoch = epoch
+
 
 class EagleHFDataset(EagleLocalDataset):
     def __init__(self, datapath, transform=None, max_len=MAX_LEN):
@@ -110,6 +116,7 @@ class EagleHFDataset(EagleLocalDataset):
     def _open_file(self, index):
         with self.hf_fs.open(self.datapaths[index]) as f:
             return torch.load(f, weights_only=False)
+
 
 class DataCollatorWithPadding:
     # Copied from https://github.com/SafeAILab/EAGLE/blob/main/eagle/train/main.py#L178
@@ -128,14 +135,32 @@ class DataCollatorWithPadding:
         return outtensors
 
     def __call__(self, features):
-        max_length = max(item['hidden_state_big'].shape[1] for item in features)
-        batch_input_ids = torch.cat([self.paddingtensor2D(item['input_ids'], max_length) for item in features])
-        batch_hidden_states = torch.cat([self.paddingtensor(item['hidden_state_big'], max_length) for item in features])
-        batch_target = torch.cat([self.paddingtensor(item['target'], max_length) for item in features])
+        max_length = max(item["hidden_state_big"].shape[1] for item in features)
+        batch_input_ids = torch.cat(
+            [self.paddingtensor2D(item["input_ids"], max_length) for item in features]
+        )
+        batch_hidden_states = torch.cat(
+            [
+                self.paddingtensor(item["hidden_state_big"], max_length)
+                for item in features
+            ]
+        )
+        batch_target = torch.cat(
+            [self.paddingtensor(item["target"], max_length) for item in features]
+        )
         batch_loss_mask = torch.tensor(
-            [item['loss_mask'] + [0] * (max_length - len(item['loss_mask'])) for item in features])
+            [
+                item["loss_mask"] + [0] * (max_length - len(item["loss_mask"]))
+                for item in features
+            ]
+        )
         batch_attention_mask = torch.tensor(
-            [item['attention_mask'] + [0] * (max_length - len(item['attention_mask'])) for item in features])
+            [
+                item["attention_mask"]
+                + [0] * (max_length - len(item["attention_mask"]))
+                for item in features
+            ]
+        )
         # batch_loss_mask = torch.ones_like(batch_loss_mask)
         # batch_attention_mask=torch.ones_like(batch_attention_mask)
         batch = {

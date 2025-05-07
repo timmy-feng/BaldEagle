@@ -3,23 +3,23 @@ import torch.nn as nn
 
 from typing import List, Optional, Union
 
-from transformers import PreTrainedModel
 from transformers.models.llama.modeling_llama import LlamaModel
 
 from transformers.cache_utils import Cache
 
+
 class LlamaForCausalLMEagle(LlamaModel):
     def __init__(self, config):
-        
-        config.attn_implementation="flash_attention_2"
+        config.attn_implementation = "flash_attention_2"
 
         # Monkey patch post init to no op - Hugging Face weight initialization makes model worse
         def noop_post_init():
             print("Running no op post init")
             pass
+
         self.post_init = noop_post_init
         super().__init__(config)
-        
+
         # Follow EAGLE removal of norm layers
         del self.norm
         setattr(self, "norm", lambda x: x)
@@ -52,7 +52,7 @@ class LlamaForCausalLMEagle(LlamaModel):
     ):
         token_emb = self.embed_tokens(input_ids)
         concat = torch.cat([token_emb, hidden_state], dim=-1)
-        
+
         proj = self.fc(concat)
 
         outputs = super().forward(

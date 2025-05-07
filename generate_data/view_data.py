@@ -6,14 +6,17 @@ import torch
 from transformers import AutoTokenizer
 
 # ANSI color codes
-RED = '\033[91m'
-GREEN = '\033[92m'
-RESET = '\033[0m'
+RED = "\033[91m"
+GREEN = "\033[92m"
+RESET = "\033[0m"
+
 
 def main():
-    parser = argparse.ArgumentParser(description='View data')
-    parser.add_argument('--data-path', type=str, default="tmp_data/data_0.ckpt")
-    parser.add_argument('--tokenizer', type=str, default="meta-llama/Meta-Llama-3.1-8B-Instruct")
+    parser = argparse.ArgumentParser(description="View data")
+    parser.add_argument("--data-path", type=str, default="tmp_data/data_0.ckpt")
+    parser.add_argument(
+        "--tokenizer", type=str, default="meta-llama/Meta-Llama-3.1-8B-Instruct"
+    )
     args = parser.parse_args()
 
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
@@ -38,7 +41,7 @@ def main():
                 print(f"{GREEN}{decoded_text}{RESET}", end="")
             current_ids = [input_ids[i]]
             current_mask = loss_mask[i]
-    
+
     print(f"{GREEN}{tokenizer.decode(current_ids, skip_special_tokens=False)}{RESET}")
 
     print()

@@ -9,9 +9,7 @@ python3 benchmark/mtbench/bench_sglang_eagle.py --num-questions 80 --parallel 1
 
 import argparse
 import json
-import os
 import time
-import uuid
 
 import sglang as sgl
 from sglang.test.test_utils import (

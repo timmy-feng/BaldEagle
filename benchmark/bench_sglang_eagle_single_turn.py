@@ -9,9 +9,7 @@ python3 benchmark/mtbench/bench_sglang_eagle.py --num-questions 80 --parallel 1
 
 import argparse
 import json
-import os
 import time
-import uuid
 
 import sglang as sgl
 from sglang.test.test_utils import (
@@ -61,8 +59,7 @@ def main(args):
 
     latency = time.time() - tic
     num_output_tokens = sum(
-        s.get_meta_info("answer_1")["completion_tokens"]
-        for s in rets
+        s.get_meta_info("answer_1")["completion_tokens"] for s in rets
     )
 
     # NOTE: acceptance length is just completion_tokens / spec_verify_ct
@@ -73,8 +70,7 @@ def main(args):
     has_verify = "spec_verify_ct" in rets[0].get_meta_info("answer_1")
     if has_verify:
         num_verify_tokens = sum(
-            s.get_meta_info("answer_1")["spec_verify_ct"]
-            for s in rets
+            s.get_meta_info("answer_1")["spec_verify_ct"] for s in rets
         )
 
         accept_length = num_output_tokens / num_verify_tokens
