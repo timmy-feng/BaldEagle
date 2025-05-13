@@ -49,3 +49,20 @@ Read out launch announcement: https://frugalgpu.substack.com/p/introducing-balde
     - Modify the datapaths in the `Load data` section to match your data paths from the previous section
     - Modify any trainer parameters
 2. Launch the training script on 1 GPU with `python3 train.py`
+
+## Eagle 3 Status
+#### Training Time Test
+Currently, training-time test from Eagle 3 paper is being worked on in the `train/train_eagle_ttt.py` and `train/modules/trainer/trainer_eagle_ttt.py` files.
+
+Eagle 2 + Training Time Test Model: https://huggingface.co/NickL77/BaldEagle-TTT-Llama-3.1-8B-Instruct-alpha
+- 11.7% faster, 8.4% greater acceptance rate than Eagle 2 baseline
+
+#### Fused Features
+Fused features requires new data generation and EAGLE 3 trains on target model generations rather than fixed dataset, which EAGLE 1 does. Fused features will require
+- new data generation to extract high, medium, and low features
+    - this will require 3x more storage
+- faster data generation since target model generation will be required
+    - ideally we can use a faster inference server like VLLM or sglang rather than huggingface
+- modifications to model and trainer code for feature fusion
+
+Feel free to open an issue to discuss implementation and results!
