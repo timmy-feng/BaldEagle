@@ -136,13 +136,24 @@ outdir = f"{args.outdir}/{args.index}"
 if not os.path.exists(outdir):
     os.makedirs(outdir)
 
+# Define low, mid, and high layer indices based on https://github.com/SafeAILab/EAGLE/blob/main/eagle/model/modeling_llama_kv.py#L1137-L1139
+num_layers = len(model.model.layers)
+low_layer_idx = 2
+mid_layer_idx = num_layers // 2
+high_layer_idx = num_layers - 3
+
 for idx, row in tqdm(enumerate(dataset)):
     output_file = f"{outdir}/data_{idx}.ckpt"
     if os.path.exists(output_file):
         continue
     with torch.no_grad():
         outputs = model(row["input_ids"].unsqueeze(0).cuda(), output_hidden_states=True)
-        hidden_states = outputs.hidden_states[-1].cpu()
+        # hidden_states = outputs.hidden_states[-1].cpu()
+        low_layer = outputs.hidden_states[low_layer_idx].cpu()
+        mid_layer = outputs.hidden_states[mid_layer_idx].cpu()
+        high_layer = outputs.hidden_states[high_layer_idx].cpu()
+        hidden_states = torch.concat([low_layer, mid_layer, high_layer], dim=0)
+        assert hidden_states.shape[0] == 3
     data_point = {
         "input_ids": row["input_ids"],
         "loss_mask": row["loss_mask"],
