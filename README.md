@@ -59,8 +59,10 @@ Eagle 2 + Training Time Test Model: https://huggingface.co/NickL77/BaldEagle-TTT
 
 #### Fused Features
 Fused features requires new data generation and EAGLE 3 trains on target model generations rather than fixed dataset, which EAGLE 1 does. Fused features will require
-- new data generation to extract high, medium, and low features
+- [Experimental ]new data generation to extract high, medium, and low features
     - this will require 3x more storage
+    - currently, [`generate_data_fused_features.py`](https://github.com/NickL77/BaldEagle/blob/master/generate_data/generate_data_fused_features.py) can generate low, mid, and high features
+      - this is based on EAGLE repos's layer selection [here](https://github.com/SafeAILab/EAGLE/blob/main/eagle/model/modeling_llama_kv.py#L1137-L1139)
 - faster data generation since target model generation will be required
     - ideally we can use a faster inference server like VLLM or sglang rather than huggingface
 - modifications to model and trainer code for feature fusion
