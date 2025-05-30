@@ -4,15 +4,27 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--outdir", type=str, default="0")
+parser.add_argument("--outdir", type=str)
+parser.add_argument("--model_name", type=str, default="Qwen/Qwen2.5-7B-Instruct")
+parser.add_argument(
+    "--dataset",
+    type=str,
+    choices=["sharegpt", "ultrachat", "mixture_of_thoughts"],
+    default="sharegpt",
+)
 args = parser.parse_args()
 
 s = 0
-e = 200000 - 1
+if args.dataset == "sharegpt":
+    e = 68000 - 1
+elif args.dataset == "ultrachat":
+    e = 200000 - 1
+elif args.dataset == "mixture_of_thoughts":
+    e = 100000 - 1
 
-gpus = [[2], [3]]
+gpus = [[0], [1]]
 num_p = len(gpus)
-outdir = "{}/ultrachat_{}_{}_mufp16".format(args.outdir, s, e)
+outdir = f"{args.outdir.rstrip('/')}/qwen2_5b_eagle_1_{args.dataset}_{s}_{e}_mufp16"
 
 
 def split_range(start, end, n, over=False):
@@ -52,8 +64,8 @@ for i in range(num_p):
 
     gpu_index = gpus[i]
     gpu_index_str = " ".join(map(str, gpu_index))
-    command = "python3 generate_data.py --start={} --end={} --index={} --gpu_index {} --outdir {}".format(
-        start, end, index, gpu_index_str, outdir
+    command = "python3 generate_data.py --start={} --end={} --index={} --gpu_index {} --outdir {} --model_name {} --dataset {}".format(
+        start, end, index, gpu_index_str, outdir, args.model_name, args.dataset
     )
     commands.append(command)
 
