@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: Liu
+    given-names: Nicholas
+    orcid: https://orcid.org/0009-0009-3185-3333
+title: BaldEagle
+abstract: BaldEagle is a simple training framework for speculative decoding models.
+type: software
+version: "1.0.0"
+date-released: 2025-05-13
+url: "https://github.com/username/BaldEagle"
+repository: "https://github.com/username/BaldEagle"
+license: "MIT" 
