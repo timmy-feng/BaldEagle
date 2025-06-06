@@ -70,6 +70,11 @@ Fused features requires new data generation and EAGLE 3 trains on target model g
 Feel free to open an issue to discuss implementation and results!
 
 ## Citation
+If you found this project useful, please cite this with:
+> Liu, N. (2025). BaldEagle (Version 1.0.0) [Computer software]. https://github.com/NickL77/BaldEagle/
+
+or 
+
 ```
 @software{Liu_BaldEagle_2025,
   title    = {BaldEagle},
