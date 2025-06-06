@@ -72,12 +72,12 @@ Feel free to open an issue to discuss implementation and results!
 ## Citation
 ```
 @software{Liu_BaldEagle_2025,
-  author = {Liu, Nicholas},
-  license = {MIT},
-  month = may,
-  title = {{BaldEagle}},
-  url = {https://github.com/username/BaldEagle},
-  version = {1.0.0},
-  year = {2025}
+  title    = {BaldEagle},
+  author   = {Liu, Nicholas},
+  year     = {2025},
+  month    = {May},
+  url      = {https://github.com/NickL77/BaldEagle},
+  license  = {MIT},
+  version  = {1.0.0}
 }
 ```
