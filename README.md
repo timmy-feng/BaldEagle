@@ -68,3 +68,16 @@ Fused features requires new data generation and EAGLE 3 trains on target model g
 - modifications to model and trainer code for feature fusion
 
 Feel free to open an issue to discuss implementation and results!
+
+## Citation
+```
+@software{Liu_BaldEagle_2025,
+  author = {Liu, Nicholas},
+  license = {MIT},
+  month = may,
+  title = {{BaldEagle}},
+  url = {https://github.com/username/BaldEagle},
+  version = {1.0.0},
+  year = {2025}
+}
+```
