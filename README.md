@@ -76,7 +76,7 @@ Feel free to open an issue to discuss implementation and results!
   author   = {Liu, Nicholas},
   year     = {2025},
   month    = {May},
-  url      = {https://github.com/NickL77/BaldEagle},
+  url      = {https://github.com/NickL77/BaldEagle/},
   license  = {MIT},
   version  = {1.0.0}
 }
