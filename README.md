@@ -7,6 +7,8 @@
 
 Read out launch announcement: https://frugalgpu.substack.com/p/introducing-baldeagle
 
+Read our guide on how to train your own EAGLE model: https://frugalgpu.substack.com/p/how-to-train-your-own-eagle-speculative
+
 ## Features
 
 ### Training
