@@ -5,7 +5,7 @@
 
 <b>Unofficial Implementation of [EAGLE](https://github.com/SafeAILab/EAGLE/tree/main) Speculative Decoding.</b>
 
-Read out launch announcement: https://frugalgpu.substack.com/p/introducing-baldeagle
+Read our launch announcement: https://frugalgpu.substack.com/p/introducing-baldeagle
 
 Read our guide on how to train your own EAGLE model: https://frugalgpu.substack.com/p/how-to-train-your-own-eagle-speculative
 
