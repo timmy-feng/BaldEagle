@@ -25,6 +25,13 @@ def list_local_files(path, suffixes=[".ckpt"]):
 def list_hf_files(repo, suffixes=[".ckpt"]):
     hf_fs = HfFileSystem()
     datapaths = []
+
+    if repo + "/file_list.txt" in hf_fs.ls(repo, detail=False):
+        with hf_fs.open(repo + "/file_list.txt") as f:
+            for line in f:
+                datapaths.append(line.decode('utf-8').strip())
+        return datapaths
+
     print(
         f"Listing files in {repo}. This is expected to take ~2 min for ShareGPT (70k files)."
     )
@@ -107,6 +114,60 @@ class EagleLocalDataset(torch.utils.data.Dataset):
     def set_epoch(self, epoch):
         self._epoch = epoch
 
+class Eagle3LocalDataset(torch.utils.data.Dataset):
+    def __init__(self, datapath, transform=None, max_len=MAX_LEN):
+        self.datapaths = datapath
+        self.transform = transform
+        self._epoch = 0
+        self.max_len = max_len
+
+    def __len__(self):
+        return len(self.datapaths)
+
+    def _open_file(self, index):
+        return torch.load(self.datapaths[index], weights_only=False)
+
+    def __getitem__(self, index):
+        try:
+            data = self._open_file(index)
+        except Exception as e:
+            print(f"Failed to load {self.datapaths[index]} with error {e}")
+            raise e
+        new_data = {}
+
+        # Squeeze due to our data generation script adding a batch dimension
+        hidden_state = data["hidden_state"].squeeze(0)[: self.max_len][None, :]
+        target = data["target_hidden_states"].squeeze(0)[1 : self.max_len][None, :]
+
+        input_ids = data["input_ids"][: self.max_len][None, :]
+        loss_mask = data["loss_mask"][: self.max_len][None, :]
+
+        length = hidden_state.shape[1]
+        attention_mask = [1] * length
+        loss_mask = loss_mask[0].tolist()
+        loss_mask[-1] = 0
+
+        input_ids_target = input_ids[:, 1:]
+        zeropadding = torch.tensor([[0]])
+        input_ids_target = torch.cat((input_ids_target, zeropadding), dim=1)
+
+        zeropadding = torch.zeros(1, 1, target.shape[2])
+        target = torch.cat((target, zeropadding), dim=1)
+        loss_mask[-1] = 0
+        new_data["attention_mask"] = attention_mask
+        new_data["loss_mask"] = loss_mask
+        new_data["target"] = target
+        new_data["hidden_state_big"] = hidden_state
+        new_data["input_ids"] = input_ids_target
+
+        if self.transform:
+            new_data = self.transform(new_data)
+
+        return new_data
+
+    def set_epoch(self, epoch):
+        self._epoch = epoch
+
 
 class EagleHFDataset(EagleLocalDataset):
     def __init__(self, datapath, transform=None, max_len=MAX_LEN):
@@ -117,6 +178,14 @@ class EagleHFDataset(EagleLocalDataset):
         with self.hf_fs.open(self.datapaths[index]) as f:
             return torch.load(f, weights_only=False)
 
+class Eagle3HFDataset(Eagle3LocalDataset):
+    def __init__(self, datapath, transform=None, max_len=MAX_LEN):
+        super().__init__(datapath, transform, max_len)
+        self.hf_fs = HfFileSystem()
+
+    def _open_file(self, index):
+        with self.hf_fs.open(self.datapaths[index]) as f:
+            return torch.load(f, weights_only=False)
 
 class DataCollatorWithPadding:
     # Copied from https://github.com/SafeAILab/EAGLE/blob/main/eagle/train/main.py#L178

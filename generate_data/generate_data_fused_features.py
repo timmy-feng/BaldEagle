@@ -14,15 +14,30 @@ parser.add_argument("--end", type=int, default=100)
 parser.add_argument("--index", type=int, default=1)
 parser.add_argument("--gpu_index", type=int, nargs="+", default=[0])
 parser.add_argument("--outdir", type=str, default="outdir0")
+parser.add_argument(
+    "--model_name", type=str, default="Qwen/Qwen2.5-7B-Instruct"
+)  # "meta-llama/Meta-Llama-3.1-8B-Instruct"
+parser.add_argument(
+    "--dataset",
+    type=str,
+    choices=["sharegpt", "ultrachat", "mixture_of_thoughts"],
+    default="sharegpt",
+)
 args = parser.parse_args()
 
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu_index)[1:-1]
 
+max_token_length = 2048
+
 # ------------------------ 1. Dataset ------------------------
 # This step converts the dataset into a standard messages format
 
-# dataset = load_dataset("Aeala/ShareGPT_Vicuna_unfiltered", split="train")
-dataset = load_dataset("HuggingFaceH4/ultrachat_200k", split="train_sft")
+if args.dataset == "sharegpt":
+    dataset = load_dataset("Aeala/ShareGPT_Vicuna_unfiltered", split="train")
+elif args.dataset == "ultrachat":
+    dataset = load_dataset("HuggingFaceH4/ultrachat_200k", split="train_sft")
+elif args.dataset == "mixture_of_thoughts":
+    dataset = load_dataset("open-r1/Mixture-of-Thoughts", "all", split="all")
 
 dataset = dataset.select(range(args.start, args.end))
 dataset = dataset.shuffle(seed=42)
@@ -30,35 +45,30 @@ dataset = dataset.shuffle(seed=42)
 # System message that will be prepended to all conversations
 system_message = {
     "role": "system",
-    "content": "You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe. Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature.\n\nIf a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information.",
+    "content": "You are a helpful, respectful and honest assistant.",
 }
 
-# def format_conversation_sharegpt(row, dataset_column="conversations"):
-#     messages = [system_message]
-#     current_role = None
-#     for message in row[dataset_column]:
-#         if message["from"] == "human":
-#             messages.append({
-#                 "role": "user",
-#                 "content": message["value"]}
-#             )
-#         elif message["from"] == "gpt":
-#             messages.append({
-#                 "role": "assistant",
-#                 "content": message["value"]}
-#             )
-#         else:
-#             raise ValueError(f"Unknown role: {message['from']}")
 
-#         if current_role is None:
-#             current_role = messages[-1]["role"]
-#         else:
-#             assert current_role != messages[-1]["role"], f"Conversation has incorrect role order"
-#             current_role = messages[-1]["role"]
+def format_conversation_sharegpt(row, dataset_column="conversations"):
+    messages = [system_message]
+    current_role = None
+    for message in row[dataset_column]:
+        if message["from"] == "human":
+            messages.append({"role": "user", "content": message["value"]})
+        elif message["from"] == "gpt":
+            messages.append({"role": "assistant", "content": message["value"]})
+        else:
+            raise ValueError(f"Unknown role: {message['from']}")
 
-#     return {"messages": messages}
+        if current_role is None:
+            current_role = messages[-1]["role"]
+        else:
+            assert (
+                current_role != messages[-1]["role"]
+            ), f"Conversation has incorrect role order"
+            current_role = messages[-1]["role"]
 
-# dataset = dataset.map(format_conversation_sharegpt)
+    return {"messages": messages}
 
 
 def format_conversation_ultrachat(row, dataset_column="messages"):
@@ -68,16 +78,25 @@ def format_conversation_ultrachat(row, dataset_column="messages"):
     return {"messages": messages}
 
 
-dataset = dataset.map(format_conversation_ultrachat)
+if args.dataset == "sharegpt":
+    dataset = dataset.map(format_conversation_sharegpt)
+elif args.dataset == "ultrachat":
+    dataset = dataset.map(format_conversation_ultrachat)
+elif args.dataset == "mixture_of_thoughts":
+    pass  # no need to format
 
 # ------------------------ 2. Tokenizer ------------------------
 # This step tokenizes the conversation and creates the loss mask
-model_name = "meta-llama/Meta-Llama-3.1-8B-Instruct"
-tokenizer = AutoTokenizer.from_pretrained(model_name)
+tokenizer = AutoTokenizer.from_pretrained(args.model_name)
 
 # Special token sequences used to identify different parts of the conversation
+# For Llama models
 assistant_header = "<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
 user_header = "<|eot_id|><|start_header_id|>user<|end_header_id|>"
+
+# For Qwen models
+# assistant_header = "<|im_start|>assistant\n"
+# user_header = "<|im_start|>user\n"
 
 
 def tokenize_conversation(row, tokenizer, col="messages"):
@@ -128,7 +147,7 @@ dataset.set_format(type="torch")
 # ------------------------ 3. Compute hidden states ------------------------
 
 model = AutoModelForCausalLM.from_pretrained(
-    model_name, device_map="cuda", torch_dtype=torch.bfloat16
+    args.model_name, device_map="cuda", torch_dtype=torch.bfloat16
 )
 model.eval()
 
@@ -142,21 +161,33 @@ low_layer_idx = 2
 mid_layer_idx = num_layers // 2
 high_layer_idx = num_layers - 3
 
-for idx, row in tqdm(enumerate(dataset)):
-    output_file = f"{outdir}/data_{idx}.ckpt"
+for idx, row in tqdm(enumerate(dataset), total=args.end - args.start):
+    group_size = 5000
+    start = (idx // group_size) * group_size
+    end = start + group_size
+    grouped_subdir = f"rows_{start}-{end}"
+    if not os.path.exists(f"{outdir}/{grouped_subdir}"):
+        os.makedirs(f"{outdir}/{grouped_subdir}")
+
+    output_file = f"{outdir}/{grouped_subdir}/data_{idx}.ckpt"
     if os.path.exists(output_file):
         continue
+
     with torch.no_grad():
-        outputs = model(row["input_ids"].unsqueeze(0).cuda(), output_hidden_states=True)
+        outputs = model(
+            row["input_ids"].unsqueeze(0)[:, :max_token_length].cuda(),
+            output_hidden_states=True,
+        )
         # hidden_states = outputs.hidden_states[-1].cpu()
         low_layer = outputs.hidden_states[low_layer_idx].cpu()
         mid_layer = outputs.hidden_states[mid_layer_idx].cpu()
         high_layer = outputs.hidden_states[high_layer_idx].cpu()
-        hidden_states = torch.concat([low_layer, mid_layer, high_layer], dim=0)
-        assert hidden_states.shape[0] == 3
+        hidden_states = torch.concat([low_layer, mid_layer, high_layer], dim=2)
+        target_hidden_states = outputs.hidden_states[-1].cpu()
     data_point = {
         "input_ids": row["input_ids"],
         "loss_mask": row["loss_mask"],
         "hidden_state": hidden_states,
+        "target_hidden_states": target_hidden_states,
     }
     torch.save(data_point, output_file)
