@@ -31,6 +31,13 @@ Read our guide on how to train your own EAGLE model: https://frugalgpu.substack.
 ### Benchmarking
 - Benchmarking scripts using [sglang](https://github.com/sgl-project/sglang) for production quality inference (see [here](benchmark/README.md) for more details)
 
+## Models Trained with BaldEagle
+| Target Model | BaldEagle Model |
+|-------------------------|-----------------------------------|
+| Llama-3.1-8B-Instruct   | [BaldEagle-Llama-3.1-8B-Instruct](https://huggingface.co/NickL77/BaldEagle-Llama-3.1-8B-Instruct)   |
+| Qwen-2.5-7B-Instruct    | [BaldEagle-Qwen-2.5-7B-Instruct](https://huggingface.co/NickL77/BaldEagle-Qwen-2.5-7B-Instruct)     |
+
+
 ## Getting Started with Training
 
 ### 1. Data Generation
