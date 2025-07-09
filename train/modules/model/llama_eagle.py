@@ -10,8 +10,6 @@ from transformers.cache_utils import Cache
 
 class LlamaForCausalLMEagle(LlamaModel):
     def __init__(self, config):
-        config.attn_implementation = "flash_attention_2"
-
         # Monkey patch post init to no op - Hugging Face weight initialization makes model worse
         def noop_post_init():
             print("Running no op post init")
@@ -19,6 +17,8 @@ class LlamaForCausalLMEagle(LlamaModel):
 
         self.post_init = noop_post_init
         super().__init__(config)
+
+        config._attn_implementation = "flash_attention_2"
 
         # Follow EAGLE removal of norm layers
         del self.norm
