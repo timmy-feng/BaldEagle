@@ -23,6 +23,7 @@ parser.add_argument(
     choices=["sharegpt", "ultrachat", "mixture_of_thoughts"],
     default="sharegpt",
 )
+parser.add_argument("--chat_template", type=str, default="llama")
 args = parser.parse_args()
 
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu_index)[1:-1]
@@ -65,7 +66,7 @@ def format_conversation_sharegpt(row, dataset_column="conversations"):
         else:
             assert (
                 current_role != messages[-1]["role"]
-            ), f"Conversation has incorrect role order"
+            ), "Conversation has incorrect role order"
             current_role = messages[-1]["role"]
 
     return {"messages": messages}
@@ -91,13 +92,14 @@ elif args.dataset == "mixture_of_thoughts":
 tokenizer = AutoTokenizer.from_pretrained(args.model_name)
 
 # Special token sequences used to identify different parts of the conversation
-# For Llama models
-# assistant_header = "<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
-# user_header = "<|eot_id|><|start_header_id|>user<|end_header_id|>"
-
-# For Qwen models
-assistant_header = "<|im_start|>assistant\n"
-user_header = "<|im_start|>user\n"
+if args.chat_template == "llama":
+    assistant_header = "<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+    user_header = "<|eot_id|><|start_header_id|>user<|end_header_id|>"
+elif args.chat_template == "qwen":
+    assistant_header = "<|im_start|>assistant\n"
+    user_header = "<|im_start|>user\n"
+else:
+    raise ValueError(f"Invalid chat template: {args.chat_template}")
 
 
 def tokenize_conversation(row, tokenizer, col="messages"):
