@@ -45,8 +45,14 @@ def main(args):
         {"question_1": q["turns"][0], "question_2": q["turns"][1]} for q in questions
     ]
 
-    # Select backend
-    backend = select_sglang_backend(args)
+    # Select backend - check for remote URL first
+    if hasattr(args, 'remote_url') and args.remote_url:
+        backend = sgl.RuntimeEndpoint(args.remote_url)
+        print(f"Using remote SGLang server at: {args.remote_url}")
+    else:
+        backend = select_sglang_backend(args)
+        print("Using local SGLang backend")
+    
     sgl.set_default_backend(backend)
 
     # Run requests
@@ -93,5 +99,7 @@ if __name__ == "__main__":
     parser.add_argument("--question-file", type=str, default="question.jsonl")
     parser.add_argument("--answer-file", type=str, default=None)
     parser.add_argument("--num-questions", type=int, default=80)
+    parser.add_argument("--remote-url", type=str, default=None, 
+                        help="URL of remote SGLang server (e.g., http://localhost:30000)")
     args = add_common_sglang_args_and_parse(parser)
     main(args)
