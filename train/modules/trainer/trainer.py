@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import numpy as np
+from typing import Optional
+from dataclasses import dataclass
 
 from transformers import Trainer
 from torch.optim.lr_scheduler import LambdaLR
@@ -37,7 +39,7 @@ def get_linear_schedule_with_warmup_and_decay(
     return LambdaLR(optimizer, lr_lambda, last_epoch)
 
 
-def top_accuracy(output, target, topk=(1,)):
+def top_accuracy(output, target, topk=(1,), mask=None):
     """Computes the accuracy over the k top predictions for the specified values of k"""
     with torch.no_grad():
         maxk = max(topk)
@@ -49,23 +51,40 @@ def top_accuracy(output, target, topk=(1,)):
 
         res = []
         for k in topk:
-            correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
-            res.append(correct_k.item())
+            correct_k = (correct[:k].float() * mask.float()).sum()
+            res.append(correct_k)
         return res
+
+
+@dataclass
+class EagleMetrics:
+    regression_loss_total: torch.Tensor
+    classification_loss_total: torch.Tensor
+    top_1_acc_sum: torch.Tensor
+    top_2_acc_sum: torch.Tensor
+    top_3_acc_sum: torch.Tensor
+    logging_valid_token_count: torch.Tensor
 
 
 class EagleTrainer(Trainer):
     def __init__(self, head, min_lr_ratio=0.0, **kwargs):
         super().__init__(**kwargs)
-        self.regression_loss_total = 0
-        self.classification_loss_total = 0
-        self.top_1_acc_sum = 0
-        self.top_2_acc_sum = 0
-        self.top_3_acc_sum = 0
-        self.logging_valid_token_count = 0
+        self.eagle_metrics: Optional[EagleMetrics] = None
         self.steps_since_last_logging = 0
         self.head = head
         self.min_lr_ratio = min_lr_ratio
+
+    def _ensure_metrics_on_device(self):
+        if self.eagle_metrics is None:
+            device = next(self.model.parameters()).device
+            self.eagle_metrics = EagleMetrics(
+                regression_loss_total=torch.tensor(0.0, device=device),
+                classification_loss_total=torch.tensor(0.0, device=device),
+                top_1_acc_sum=torch.tensor(0.0, device=device),
+                top_2_acc_sum=torch.tensor(0.0, device=device),
+                top_3_acc_sum=torch.tensor(0.0, device=device),
+                logging_valid_token_count=torch.tensor(0.0, device=device),
+            )
 
     def create_scheduler(self, num_training_steps, optimizer=None):
         """
@@ -167,21 +186,21 @@ class EagleTrainer(Trainer):
                 loss_reg + (0.1 * loss_class)
             ) / self.args.gradient_accumulation_steps
 
+        self._ensure_metrics_on_device()
+
         with torch.no_grad():
             _, target = torch.max(target_head, 2)
-            pred_head = pred_head.view(-1, target_head.shape[-1])[
-                loss_mask.view(-1) == 1
-            ]
-            target = target.view(-1)[loss_mask.view(-1) == 1]
-            topkacc = top_accuracy(pred_head, target, (1, 2, 3))
+            pred_head = pred_head.view(-1, target_head.shape[-1])
+            target = target.view(-1)
+            topkacc = top_accuracy(pred_head, target, (1, 2, 3), mask=(loss_mask.view(-1) == 1))
 
-            valid_tokens = loss_mask.sum().item()
-            self.regression_loss_total += loss_reg.item()
-            self.classification_loss_total += loss_class.item()
-            self.top_1_acc_sum += topkacc[0]
-            self.top_2_acc_sum += topkacc[1]
-            self.top_3_acc_sum += topkacc[2]
-            self.logging_valid_token_count += valid_tokens
+            valid_tokens = loss_mask.sum()
+            self.eagle_metrics.regression_loss_total += loss_reg
+            self.eagle_metrics.classification_loss_total += loss_class
+            self.eagle_metrics.top_1_acc_sum += topkacc[0]
+            self.eagle_metrics.top_2_acc_sum += topkacc[1]
+            self.eagle_metrics.top_3_acc_sum += topkacc[2]
+            self.eagle_metrics.logging_valid_token_count += valid_tokens
 
         if model.training:
             self.steps_since_last_logging += 1
@@ -202,27 +221,26 @@ class EagleTrainer(Trainer):
         if (
             self.control.should_log
             and self.state.global_step > self._globalstep_last_logged
+            and self.eagle_metrics is not None
         ):
+            regression_loss = self.eagle_metrics.regression_loss_total / self.steps_since_last_logging
+            classification_loss = self.eagle_metrics.classification_loss_total / self.steps_since_last_logging
+            top_1_acc = self.eagle_metrics.top_1_acc_sum / self.eagle_metrics.logging_valid_token_count
+            top_2_acc = self.eagle_metrics.top_2_acc_sum / self.eagle_metrics.logging_valid_token_count
+            top_3_acc = self.eagle_metrics.top_3_acc_sum / self.eagle_metrics.logging_valid_token_count
+
             self.log(
                 {
-                    "regression_loss": self.regression_loss_total
-                    / self.steps_since_last_logging,
-                    "classification_loss": self.classification_loss_total
-                    / self.steps_since_last_logging,
-                    "top_1_acc": self.top_1_acc_sum / self.logging_valid_token_count,
-                    "top_2_acc": self.top_2_acc_sum / self.logging_valid_token_count,
-                    "top_3_acc": self.top_3_acc_sum / self.logging_valid_token_count,
+                    "regression_loss": regression_loss.item(),
+                    "classification_loss": classification_loss.item(),
+                    "top_1_acc": top_1_acc.item(),
+                    "top_2_acc": top_2_acc.item(),
+                    "top_3_acc": top_3_acc.item(),
                 }
             )
 
-            self.regression_loss_total = 0
-            self.classification_loss_total = 0
-            self.top_1_acc_sum = 0
-            self.top_2_acc_sum = 0
-            self.top_3_acc_sum = 0
+            self.eagle_metrics = None
             self.steps_since_last_logging = 0
-            self.logging_valid_token_count = 0
-
             self.control.should_log = True
 
         super()._maybe_log_save_evaluate(
@@ -241,14 +259,16 @@ class EagleTrainer(Trainer):
         eval_dataloader = self.get_eval_dataloader(eval_dataset)
         self.model.eval()
 
-        top_1_acc_sum, top_2_acc_sum, top_3_acc_sum, total_rows, total_valid_tokens = (
-            0,
-            0,
-            0,
-            0,
-            0,
+        device = next(self.model.parameters()).device
+        eval_metrics = EagleMetrics(
+            regression_loss_total=torch.tensor(0.0, device=device),
+            classification_loss_total=torch.tensor(0.0, device=device),
+            top_1_acc_sum=torch.tensor(0.0, device=device),
+            top_2_acc_sum=torch.tensor(0.0, device=device),
+            top_3_acc_sum=torch.tensor(0.0, device=device),
+            logging_valid_token_count=torch.tensor(0.0, device=device),
         )
-        losses = []
+        total_rows = 0
 
         with torch.no_grad():
             for batch in eval_dataloader:
@@ -258,30 +278,28 @@ class EagleTrainer(Trainer):
                     prediction_loss_only=False,
                     ignore_keys=ignore_keys,
                 )
-                losses.append(loss.detach().cpu())
+                eval_metrics.regression_loss_total += loss.detach()
 
                 target_head, loss_mask = labels
 
                 _, target = torch.max(target_head, 2)
-                pred_head = logits.view(-1, target_head.shape[-1])[
-                    loss_mask.view(-1) == 1
-                ]
-                target = target.view(-1)[loss_mask.view(-1) == 1]
-                topkacc = top_accuracy(pred_head, target, (1, 2, 3))
+                pred_head = logits.view(-1, target_head.shape[-1])
+                target = target.view(-1)
+                topkacc = top_accuracy(pred_head, target, (1, 2, 3), mask=(loss_mask.view(-1) == 1))
 
-                valid_tokens = loss_mask.sum().item()
-                top_1_acc_sum += topkacc[0]
-                top_2_acc_sum += topkacc[1]
-                top_3_acc_sum += topkacc[2]
-                total_valid_tokens += valid_tokens
+                valid_tokens = loss_mask.sum()
+                eval_metrics.top_1_acc_sum += topkacc[0]
+                eval_metrics.top_2_acc_sum += topkacc[1]
+                eval_metrics.top_3_acc_sum += topkacc[2]
+                eval_metrics.logging_valid_token_count += valid_tokens
                 # TODO: this only assumes bs=1, match bs
                 total_rows += 1
 
         metrics = {
-            "eval_loss": np.mean(losses).item(),
-            "eval_top_1_acc": top_1_acc_sum / total_valid_tokens,
-            "eval_top_2_acc": top_2_acc_sum / total_valid_tokens,
-            "eval_top_3_acc": top_3_acc_sum / total_valid_tokens,
+            "eval_loss": (eval_metrics.regression_loss_total / total_rows).item(),
+            "eval_top_1_acc": (eval_metrics.top_1_acc_sum / eval_metrics.logging_valid_token_count).item(),
+            "eval_top_2_acc": (eval_metrics.top_2_acc_sum / eval_metrics.logging_valid_token_count).item(),
+            "eval_top_3_acc": (eval_metrics.top_3_acc_sum / eval_metrics.logging_valid_token_count).item(),
         }
 
         self.log(metrics)
