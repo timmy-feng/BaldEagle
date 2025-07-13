@@ -14,13 +14,13 @@ parser.add_argument("--end", type=int, default=100)
 parser.add_argument("--index", type=int, default=1)
 parser.add_argument("--gpu_index", type=int, nargs="+", default=[0])
 parser.add_argument("--outdir", type=str, default="outdir0")
+parser.add_argument("--capture_layers", nargs="+", type=int, default=[-1])
 parser.add_argument(
     "--model_name", type=str, default="Qwen/Qwen2.5-7B-Instruct"
 )  # "meta-llama/Meta-Llama-3.1-8B-Instruct"
 parser.add_argument(
     "--dataset",
     type=str,
-    choices=["sharegpt", "ultrachat", "mixture_of_thoughts"],
     default="sharegpt",
 )
 parser.add_argument("--chat_template", type=str, default="llama")
@@ -39,6 +39,10 @@ elif args.dataset == "ultrachat":
     dataset = load_dataset("HuggingFaceH4/ultrachat_200k", split="train_sft")
 elif args.dataset == "mixture_of_thoughts":
     dataset = load_dataset("open-r1/Mixture-of-Thoughts", "all", split="all")
+else:
+    # try local dataset
+    assert os.path.exists(args.dataset), f"Dataset file {args.dataset} does not exist"
+    dataset = load_dataset("json", data_files=args.dataset, split="train")
 
 dataset = dataset.select(range(args.start, args.end))
 dataset = dataset.shuffle(seed=42)
@@ -83,7 +87,7 @@ if args.dataset == "sharegpt":
     dataset = dataset.map(format_conversation_sharegpt)
 elif args.dataset == "ultrachat":
     dataset = dataset.map(format_conversation_ultrachat)
-elif args.dataset == "mixture_of_thoughts":
+else:
     pass  # no need to format
 
 
@@ -174,7 +178,9 @@ for idx, row in tqdm(enumerate(dataset), total=len(dataset)):
         continue
     with torch.no_grad():
         outputs = model(row["input_ids"].unsqueeze(0).cuda(), output_hidden_states=True)
-        hidden_states = outputs.hidden_states[-1].cpu()
+        hidden_states = torch.cat(
+            [outputs.hidden_states[layer] for layer in args.capture_layers], dim=-1
+        ).cpu()
     data_point = {
         "input_ids": row["input_ids"],
         "loss_mask": row["loss_mask"],

@@ -1,6 +1,7 @@
 import modal
 
 app = modal.App(name="eagle-generate-data")
+
 hf_cache_vol = modal.Volume.from_name("huggingface-cache", create_if_missing=True)
 data_vol = modal.Volume.from_name("eagle-data", create_if_missing=True)
 
@@ -13,7 +14,8 @@ image = (
         "tqdm",
         "transformers",
     ])
-    .add_local_file("generate_data.py", remote_path="/scripts/generate_data.py")
+    .add_local_file("generate_data.py", remote_path="/root/generate_data.py")
+    .add_local_dir(".data", remote_path="/mnt/conversations")
 )
 
 def split_range(start, end, n, over=False):
@@ -37,12 +39,13 @@ def split_range(start, end, n, over=False):
 
 @app.function(
     gpu='H100',
+    cpu=16,
     image=image,
     secrets=[modal.Secret.from_name("huggingface-secret")],
     timeout=3600,
-    volumes={"/root/.cache/huggingface": hf_cache_vol, "/data": data_vol},
+    volumes={"/root/.cache/huggingface": hf_cache_vol, "/mnt/data": data_vol},
 )
-def generate_data(start: int, end: int, index: int, outdir: str, model_name: str, dataset: str):
+def generate_data(start: int, end: int, index: int, outdir: str, model_name: str, dataset: str, layers: str):
     import subprocess
     args = {
         "start": start,
@@ -52,12 +55,15 @@ def generate_data(start: int, end: int, index: int, outdir: str, model_name: str
         "outdir": outdir,
         "model_name": model_name,
         "dataset": dataset,
+        "capture_layers": layers,
     }
-    cmd = "python3 /scripts/generate_data.py " + " ".join([f"--{k}={v}" for k, v in args.items()])
+    cmd = "python3 generate_data.py " + \
+        " ".join([f"--{k} {v}" for k, v in args.items()])
+    print(cmd)
     subprocess.run(cmd, shell=True)
 
 @app.local_entrypoint()
-def main(outdir: str, model_name: str, dataset: str, num_p: int):
+def main(outdir: str, model_name: str, dataset: str, num_p: int, layers: str = "-1"):
     s = 0
     if dataset == "sharegpt":
         e = 68000 - 1
@@ -65,6 +71,7 @@ def main(outdir: str, model_name: str, dataset: str, num_p: int):
         e = 200000 - 1
     elif dataset == "mixture_of_thoughts":
         e = 100000 - 1
+    e = 200000 - 1
 
     print(f"Generating data for {dataset} from {s} to {e} in {outdir}")
 
@@ -76,6 +83,7 @@ def main(outdir: str, model_name: str, dataset: str, num_p: int):
             "outdir": outdir,
             "model_name": model_name,
             "dataset": dataset,
+            "layers": layers,
         },
     ):
         pass
