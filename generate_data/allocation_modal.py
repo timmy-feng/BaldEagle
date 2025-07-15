@@ -63,7 +63,7 @@ def generate_data(start: int, end: int, index: int, outdir: str, model_name: str
     subprocess.run(cmd, shell=True)
 
 @app.local_entrypoint()
-def main(outdir: str, model_name: str, dataset: str, num_p: int, layers: str = "-1"):
+def main(outdir: str, model_name: str, dataset: str, num_p: int, layers: str = "-1", end: int = None):
     s = 0
     if dataset == "sharegpt":
         e = 68000 - 1
@@ -71,7 +71,8 @@ def main(outdir: str, model_name: str, dataset: str, num_p: int, layers: str = "
         e = 200000 - 1
     elif dataset == "mixture_of_thoughts":
         e = 100000 - 1
-    e = 200000 - 1
+    if end is not None:
+        e = end
 
     print(f"Generating data for {dataset} from {s} to {e} in {outdir}")
 

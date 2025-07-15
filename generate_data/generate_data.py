@@ -179,7 +179,7 @@ for idx, row in tqdm(enumerate(dataset), total=len(dataset)):
     with torch.no_grad():
         outputs = model(row["input_ids"].unsqueeze(0).cuda(), output_hidden_states=True)
         hidden_states = torch.cat(
-            [outputs.hidden_states[layer] for layer in args.capture_layers], dim=-1
+            [outputs.hidden_states[layer] for layer in args.capture_layers], dim=0
         ).cpu()
     data_point = {
         "input_ids": row["input_ids"],

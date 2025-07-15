@@ -136,8 +136,10 @@ class Eagle3LocalDataset(torch.utils.data.Dataset):
         new_data = {}
 
         # Squeeze due to our data generation script adding a batch dimension
-        hidden_state = data["hidden_state"].squeeze(0)[: self.max_len][None, :]
-        target = data["target_hidden_states"].squeeze(0)[1 : self.max_len][None, :]
+        assert data["hidden_state"].shape[0] == 4
+        hidden_dim = data["hidden_state"].shape[-1]
+        hidden_state = data["hidden_state"][:-1].reshape(-1, 3 * hidden_dim)[: self.max_len][None, :]
+        target = data["hidden_state"][-1, 1 : self.max_len][None, :]
 
         input_ids = data["input_ids"][: self.max_len][None, :]
         loss_mask = data["loss_mask"][: self.max_len][None, :]
