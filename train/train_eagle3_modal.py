@@ -14,14 +14,14 @@ import transformers
 
 from transformers import AutoTokenizer, TrainingArguments, TrainerCallback
 
-from modules.model import LlamaForCausalLMEagle
+from modules.model import LlamaForCausalLMEagle3
 from modules.data.data import (
-    EagleLocalDataset,
+    Eagle3LocalDataset,
     DataCollatorWithPadding,
     AddUniformNoise,
     list_local_files,
 )
-from modules.trainer import EagleTrainer
+from modules.trainer import EagleTrainer3
 
 app = modal.App(name="eagle-train")
 
@@ -81,9 +81,10 @@ def load_original_weights(model_files: dict):
         tensor = tensor_slice[:, :hidden_dim].float()
     return vocab_size, hidden_dim, tensor
 
-def create_draft_model(vocab_size: int, hidden_dim: int, tensor: torch.Tensor, model_files: Any):
+def create_draft_model(vocab_size: int, draft_vocab_size: int, hidden_dim: int, tensor: torch.Tensor, model_files: Any):
     model_args = LlamaConfig(
         vocab_size=vocab_size,
+        draft_vocab_size=draft_vocab_size,
         hidden_size=hidden_dim,
         intermediate_size=model_files["config_json"]["intermediate_size"],
         num_hidden_layers=1,
@@ -91,30 +92,15 @@ def create_draft_model(vocab_size: int, hidden_dim: int, tensor: torch.Tensor, m
         eos_token_id=[128001, 128008, 128009],
         num_key_value_heads=8,
         num_attention_heads=32,
-        tie_word_embeddings=False,
+        tie_word_embeddings=model_files["config_json"]["tie_word_embeddings"],
     )
 
-    draft_model = LlamaForCausalLMEagle(model_args)
+    draft_model = LlamaForCausalLMEagle3(model_args)
     draft_model.load_embedding_weights(tensor)
     draft_model.to("cuda")
     draft_model.embed_tokens.weight.requires_grad = False
 
-    return model_args, draft_model
-
-def load_head(model_files: dict, model_args: LlamaConfig):
-    head = torch.nn.Linear(model_args.hidden_size, model_args.vocab_size, bias=False)
-    
-    with safe_open(model_files["head_path"], framework="pt", device="cpu") as f:
-        if model_files["config_json"]["tie_word_embeddings"]:
-            tensor_slice = f.get_slice("model.embed_tokens.weight")
-        else:
-            tensor_slice = f.get_slice("lm_head.weight")
-        vocab_size, hidden_dim = tensor_slice.get_shape()
-        tensor = tensor_slice[:, :hidden_dim].float()
-    head.weight.data = tensor
-    head.to("cuda")
-    head.eval()
-    return head
+    return draft_model
 
 def load_data(sharegpt_path: str, ultrachat_path: str):
     sharegpt_datapaths = list_local_files(sharegpt_path)
@@ -123,11 +109,11 @@ def load_data(sharegpt_path: str, ultrachat_path: str):
     random.Random(42).shuffle(combined_data_paths)
     eval_data_paths = sharegpt_datapaths[int(len(sharegpt_datapaths) * 0.95) :][:100]
 
-    eagle_train_dataset = EagleLocalDataset(
+    eagle_train_dataset = Eagle3LocalDataset(
         combined_data_paths,
         transform=AddUniformNoise(std=0.5),
     )
-    eagle_test_dataset = EagleLocalDataset(eval_data_paths)
+    eagle_test_dataset = Eagle3LocalDataset(eval_data_paths)
 
     return eagle_train_dataset, eagle_test_dataset
 
@@ -151,7 +137,7 @@ NUM_DATALOADER_WORKERS = 64
     memory=1024 * 128,
 )
 def train(model_path: str, sharegpt_path: str, ultrachat_path: str, outdir: str, profile: bool = False):
-    wandb.init(project="BaldEagle")
+    wandb.init(project="BaldEagle3")
     wandb_run_name = wandb.run.name
 
     model_files = download_model_files(model_path)
@@ -160,9 +146,17 @@ def train(model_path: str, sharegpt_path: str, ultrachat_path: str, outdir: str,
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     tokenizer.pad_token = tokenizer.eos_token
 
-    model_args, draft_model = create_draft_model(vocab_size, hidden_dim, tensor, model_files)
+    # TODO: make draft vocab size configurable
+    draft_model = create_draft_model(
+        vocab_size=vocab_size,
+        draft_vocab_size=vocab_size,
+        hidden_dim=hidden_dim,
+        tensor=tensor,
+        model_files=model_files,
+    )
 
-    head = load_head(model_files, model_args)
+    draft_model.d2t = torch.arange(vocab_size).to(draft_model.device)
+    draft_model.t2d = torch.ones(vocab_size, dtype=torch.bool).to(draft_model.device)
 
     eagle_train_dataset, eagle_test_dataset = load_data(sharegpt_path, ultrachat_path)
     eagle_collator = DataCollatorWithPadding()
@@ -202,9 +196,9 @@ def train(model_path: str, sharegpt_path: str, ultrachat_path: str, outdir: str,
     if profile:
         training_args.max_steps = 128
 
-    trainer = EagleTrainer(
+    trainer = EagleTrainer3(
         model=draft_model,
-        head=head,
+        ttt_length=7,
         args=training_args,
         train_dataset=eagle_train_dataset,
         eval_dataset=eagle_test_dataset,
