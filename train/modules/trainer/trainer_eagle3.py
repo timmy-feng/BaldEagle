@@ -19,9 +19,10 @@ class EagleMetrics3:
 
 
 class EagleTrainer3(Trainer):
-    def __init__(self, min_lr_ratio=0.0, ttt_length=7, discount_factor=0.8, **kwargs):
+    def __init__(self, head, min_lr_ratio=0.0, ttt_length=7, discount_factor=0.8, **kwargs):
         super().__init__(**kwargs)
         self.eagle_metrics: Optional[EagleMetrics3] = None
+        self.head = head    # logits head from the *target* model
         self.steps_since_last_logging = 0
         self.min_lr_ratio = min_lr_ratio
         self.ttt_length = ttt_length
@@ -68,7 +69,7 @@ class EagleTrainer3(Trainer):
 
         with torch.autocast(dtype=torch.bfloat16, device_type="cuda"):
             with torch.no_grad():
-                target_head = self.model.lm_head(target_hidden_states)
+                target_head = self.head(target_hidden_states)
                 target_max_token = target_head.argmax(-1)
                 target_mask = self.model.t2d[target_max_token][..., None].int()
                 loss_mask = target_mask * loss_mask
@@ -119,7 +120,7 @@ class EagleTrainer3(Trainer):
 
         with torch.autocast(dtype=torch.bfloat16, device_type="cuda"):
             with torch.no_grad():
-                target_head = self.model.lm_head(target_hidden_states)
+                target_head = self.head(target_hidden_states)
                 target_max_token = target_head.argmax(-1)
                 target_mask = self.model.t2d[target_max_token][..., None].int()
                 loss_mask = target_mask * loss_mask
@@ -252,7 +253,7 @@ class EagleTrainer3(Trainer):
                     ignore_keys=ignore_keys,
                 )
                 eval_metrics.classification_loss_total += loss.detach()
-                eval_metrics.classification_loss_ttt += torch.tensor(losses)
+                eval_metrics.classification_loss_ttt += torch.tensor(losses, device=device)
 
                 target_head, loss_mask = labels
 

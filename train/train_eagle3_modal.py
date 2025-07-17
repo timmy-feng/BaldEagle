@@ -92,7 +92,7 @@ def create_draft_model(vocab_size: int, draft_vocab_size: int, hidden_dim: int, 
         eos_token_id=[128001, 128008, 128009],
         num_key_value_heads=8,
         num_attention_heads=32,
-        tie_word_embeddings=model_files["config_json"]["tie_word_embeddings"],
+        tie_word_embeddings=False,
     )
 
     draft_model = LlamaForCausalLMEagle3(model_args)
@@ -100,7 +100,22 @@ def create_draft_model(vocab_size: int, draft_vocab_size: int, hidden_dim: int, 
     draft_model.to("cuda")
     draft_model.embed_tokens.weight.requires_grad = False
 
-    return draft_model
+    return model_args, draft_model
+
+def load_head(model_files: dict, model_args: LlamaConfig):
+    head = torch.nn.Linear(model_args.hidden_size, model_args.vocab_size, bias=False)
+    
+    with safe_open(model_files["head_path"], framework="pt", device="cpu") as f:
+        if model_files["config_json"]["tie_word_embeddings"]:
+            tensor_slice = f.get_slice("model.embed_tokens.weight")
+        else:
+            tensor_slice = f.get_slice("lm_head.weight")
+        vocab_size, hidden_dim = tensor_slice.get_shape()
+        tensor = tensor_slice[:, :hidden_dim].float()
+    head.weight.data = tensor
+    head.to("cuda")
+    head.eval()
+    return head
 
 def load_data(sharegpt_path: str, ultrachat_path: str):
     sharegpt_datapaths = list_local_files(sharegpt_path)
@@ -147,13 +162,15 @@ def train(model_path: str, sharegpt_path: str, ultrachat_path: str, outdir: str,
     tokenizer.pad_token = tokenizer.eos_token
 
     # TODO: make draft vocab size configurable
-    draft_model = create_draft_model(
+    model_args, draft_model = create_draft_model(
         vocab_size=vocab_size,
         draft_vocab_size=vocab_size,
         hidden_dim=hidden_dim,
         tensor=tensor,
         model_files=model_files,
     )
+
+    head = load_head(model_files, model_args)
 
     draft_model.d2t = torch.arange(vocab_size).to(draft_model.device)
     draft_model.t2d = torch.ones(vocab_size, dtype=torch.bool).to(draft_model.device)
@@ -190,7 +207,7 @@ def train(model_path: str, sharegpt_path: str, ultrachat_path: str, outdir: str,
         logging_nan_inf_filter=False,
         save_strategy="steps",
         save_steps=1024,
-        torch_compile=True,
+        # torch_compile=True,
     )
 
     if profile:
@@ -198,6 +215,7 @@ def train(model_path: str, sharegpt_path: str, ultrachat_path: str, outdir: str,
 
     trainer = EagleTrainer3(
         model=draft_model,
+        head=head,
         ttt_length=7,
         args=training_args,
         train_dataset=eagle_train_dataset,
