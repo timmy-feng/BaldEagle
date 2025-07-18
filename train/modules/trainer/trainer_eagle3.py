@@ -66,6 +66,8 @@ class EagleTrainer3(Trainer):
         attention_mask = inputs["attention_mask"]
         target_hidden_states = inputs["target"]
         loss_mask = inputs["loss_mask"][:, :, None]
+        position_ids = torch.arange(input_ids.shape[1], device=input_ids.device).unsqueeze(0)
+        past_key_values = None
 
         with torch.autocast(dtype=torch.bfloat16, device_type="cuda"):
             with torch.no_grad():
@@ -76,30 +78,40 @@ class EagleTrainer3(Trainer):
                 target_head = target_head[..., self.model.t2d]
                 target_probs = nn.Softmax(dim=2)(target_head).detach()
 
+                loss_mask_i = loss_mask.clone()
+                target_probs_i = target_probs.clone()
+
                 losses = []
                 for i in range(self.ttt_length):
-                    outputs = model(
+                    output = model(
                         input_ids=input_ids,
                         hidden_state=hidden_states,
                         attention_mask=attention_mask,
+                        position_ids=position_ids,
+                        past_key_values=past_key_values,
+                        speculative_step=i,
                     )
 
-                    logits = outputs.logits
+                    logits = output.logits
+                    past_key_values = output.past_key_values
                     pred_log_probs = nn.LogSoftmax(dim=2)(logits).detach()
-                    loss_class = target_probs[:, i:] * pred_log_probs
-                    loss_class = -torch.sum(torch.sum(loss_mask[:, i:] * loss_class, 2)) / (
-                        loss_mask[:, i:].sum() + 1e-5
+                    loss_class = target_probs_i * pred_log_probs
+                    loss_class = -torch.sum(torch.sum(loss_mask_i * loss_class, 2)) / (
+                        loss_mask_i.sum() + 1e-5
                     )
                     losses.append(loss_class)
 
                     # save first logits for metrics
                     if i == 0:
-                        pred_head = logits
+                        pred_head = output.logits
 
                     # roll tensors for next decode
-                    hidden_states = outputs.pre_norm_hidden_states[:, :-1]
-                    input_ids = input_ids[:, 1:]
-                    attention_mask = attention_mask[:, 1:]
+                    hidden_states = torch.roll(hidden_states, -1, dims=1)
+                    input_ids = torch.roll(input_ids, 1, dims=1)
+                    attention_mask = torch.roll(attention_mask, 1, dims=1)
+                    position_ids = torch.roll(position_ids, 1, dims=1)
+                    target_probs_i = torch.roll(target_probs_i, 1, dims=1)
+                    loss_mask_i = torch.cat([loss_mask_i[:, 1:], torch.zeros_like(loss_mask_i[:, :1])], dim=1)
 
                 total_loss = sum(
                     np.pow(self.discount_factor, i) * loss for i, loss in enumerate(losses)
@@ -117,6 +129,8 @@ class EagleTrainer3(Trainer):
         attention_mask = inputs["attention_mask"]
         target_hidden_states = inputs["target"]
         loss_mask = inputs["loss_mask"][:, :, None]
+        position_ids = torch.arange(input_ids.shape[1], device=input_ids.device).unsqueeze(0)
+        past_key_values = None
 
         with torch.autocast(dtype=torch.bfloat16, device_type="cuda"):
             with torch.no_grad():
@@ -127,19 +141,26 @@ class EagleTrainer3(Trainer):
                 target_head = target_head[..., self.model.t2d]
                 target_probs = nn.Softmax(dim=2)(target_head).detach()
 
+            loss_mask_i = loss_mask.clone()
+            target_probs_i = target_probs.clone()
+
             losses = []
             for i in range(self.ttt_length):
                 output = model(
                     input_ids=input_ids,
                     hidden_state=hidden_states,
                     attention_mask=attention_mask,
+                    position_ids=position_ids,
+                    past_key_values=past_key_values,
+                    speculative_step=i,
                 )
 
                 logits = output.logits
+                past_key_values = output.past_key_values
                 pred_log_probs = nn.LogSoftmax(dim=2)(logits)
-                loss_class = target_probs[:, i:] * pred_log_probs
-                loss_class = -torch.sum(torch.sum(loss_mask[:, i:] * loss_class, 2)) / (
-                    loss_mask[:, i:].sum() + 1e-5
+                loss_class = target_probs_i * pred_log_probs
+                loss_class = -torch.sum(torch.sum(loss_mask_i * loss_class, 2)) / (
+                    loss_mask_i.sum() + 1e-5
                 )
                 losses.append(loss_class)
 
@@ -148,9 +169,12 @@ class EagleTrainer3(Trainer):
                     pred_head = output.logits
 
                 # roll tensors for next decode
-                hidden_states = output.pre_norm_hidden_states[:, :-1]
-                input_ids = input_ids[:, 1:]
-                attention_mask = attention_mask[:, 1:]
+                hidden_states = torch.roll(hidden_states, -1, dims=1)
+                input_ids = torch.roll(input_ids, 1, dims=1)
+                attention_mask = torch.roll(attention_mask, 1, dims=1)
+                position_ids = torch.roll(position_ids, 1, dims=1)
+                target_probs_i = torch.roll(target_probs_i, 1, dims=1)
+                loss_mask_i = torch.cat([loss_mask_i[:, 1:], torch.zeros_like(loss_mask_i[:, :1])], dim=1)
 
             total_loss = sum(
                 np.pow(self.discount_factor, i) * loss for i, loss in enumerate(losses)
