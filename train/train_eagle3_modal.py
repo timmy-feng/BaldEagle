@@ -172,7 +172,7 @@ def train(model_path: str, sharegpt_path: str, ultrachat_path: str, outdir: str,
 
     head = load_head(model_files, model_args)
 
-    draft_model.d2t = torch.arange(vocab_size).to(draft_model.device)
+    draft_model.d2t = torch.zeros(vocab_size, dtype=torch.int32).to(draft_model.device)
     draft_model.t2d = torch.ones(vocab_size, dtype=torch.bool).to(draft_model.device)
 
     eagle_train_dataset, eagle_test_dataset = load_data(sharegpt_path, ultrachat_path)
@@ -186,7 +186,7 @@ def train(model_path: str, sharegpt_path: str, ultrachat_path: str, outdir: str,
         num_train_epochs=5,
         gradient_accumulation_steps=1,
         per_device_train_batch_size=4,
-        per_device_eval_batch_size=4,
+        per_device_eval_batch_size=1,
         remove_unused_columns=False,
         bf16=True,
         fp16=False,
@@ -216,7 +216,7 @@ def train(model_path: str, sharegpt_path: str, ultrachat_path: str, outdir: str,
     trainer = EagleTrainer3(
         model=draft_model,
         head=head,
-        ttt_length=7,
+        ttt_length=5,
         args=training_args,
         train_dataset=eagle_train_dataset,
         eval_dataset=eagle_test_dataset,
